@@ -48,7 +48,7 @@ uint8_t last_press = 0xFF;
 
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
-static uint8_t custom_advertising_set_handle = 0xaa;
+static uint8_t custom_ADV = 0xaa;
 
 /**************************************************************************//**
  * Set up a custom advertisement package according to iBeacon specifications.
@@ -87,6 +87,14 @@ SL_WEAK void app_process_action(void)
  *
  * @param[in] evt Event coming from the Bluetooth stack.
  *****************************************************************************/
+
+volatile uint16_t Adv_counter = 0;
+uint16_t TX_counter = 0;
+uint16_t RX_counter = 0;
+uint16_t CRCERR_counter = 0;
+uint16_t FAIL_counter = 0;
+#define MAX_ADV_EVTS 10
+
 void sl_bt_on_event(sl_bt_msg_t *evt)
 {
 
@@ -106,9 +114,30 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
       (void)ret_power_max;
       // Initialize iBeacon ADV data.
       //bcn_setup_adv_beaconing();
+
+      sl_bt_system_get_counters(1, &TX_counter,  &RX_counter, &CRCERR_counter, &FAIL_counter );
+      app_assert_status(sc);
+
+      sc = sl_bt_advertiser_create_set(&custom_ADV);
+             app_assert(sc == SL_STATUS_OK,
+                           "[E: 0x%04x] Failed to create advertising set\n",
+                           (int)sc);
+
       custom_adv_beaconing();
       break;
 
+    case sl_bt_evt_advertiser_timeout_id:
+
+      Adv_counter += MAX_ADV_EVTS;
+      sl_bt_system_get_counters(0, &TX_counter,  &RX_counter, &CRCERR_counter, &FAIL_counter );
+      custom_adv_beaconing();
+
+
+      app_log("Adv_counter = %d \n\r", Adv_counter);
+      app_log("Counters TX = %d, RX = %d, CRC = %d, Failures = %d \n\r", TX_counter, RX_counter, CRCERR_counter, FAIL_counter );
+      app_log("%s\n\r", sData);
+
+      break;
     ///////////////////////////////////////////////////////////////////////////
     // Add additional event handlers here as your application requires!      //
     ///////////////////////////////////////////////////////////////////////////
@@ -124,39 +153,36 @@ static void custom_adv_beaconing(void)
 {
   sl_status_t sc;
 
-  sc = sl_bt_advertiser_create_set(&custom_advertising_set_handle);
-        app_assert(sc == SL_STATUS_OK,
-                      "[E: 0x%04x] Failed to create advertising set\n",
-                      (int)sc);
 
         // Set advertising interval to 100ms.
         sc = sl_bt_advertiser_set_timing(
-            custom_advertising_set_handle,
-          50, // min. adv. interval (milliseconds * 1.6)
-          50, // max. adv. interval (milliseconds * 1.6)
+            custom_ADV,
+          160, // min. adv. interval (milliseconds * 1.6)
+          160, // max. adv. interval (milliseconds * 1.6)
           0,   // adv. duration
-          0);  // max. num. adv. events
-        sl_bt_advertiser_set_channel_map(custom_advertising_set_handle, 7);
+          MAX_ADV_EVTS);  // max. num. adv. events
 
-        fill_adv_packet(&sData, 0x06, 0x02FF, num_presses, last_press, "CustomAdvDemo");
-        //start_adv(&sData, custom_advertising_set_handle);
+        sl_bt_advertiser_set_channel_map(custom_ADV, 7);
 
-        app_log("data size %d \n\r", sData.data_size);
+        fill_adv_packet(&sData, 0x06, 0xAAAA, (uint8_t )(Adv_counter>>8), (uint8_t )Adv_counter, "CustomAdvDemo");
+        //start_adv(&sData, custom_ADV);
+
+        //app_log("data size %d \n\r", sData.data_size);
 
 #ifndef NONLEGACY
 
         // Set custom advertising data.
-       sc =  sl_bt_legacy_advertiser_set_data(custom_advertising_set_handle,
+       sc =  sl_bt_legacy_advertiser_set_data(custom_ADV,
                                                      0,
                                                      sData.data_size,
-                                                     (uint8_t *)(&sData));
+                                                     (const uint8_t *)(&sData));
 
        app_assert_status(sc);
 
    //     Start advertising in user mode and disable connections.
 
                sc = sl_bt_legacy_advertiser_start(
-                 custom_advertising_set_handle,
+                 custom_ADV,
                  sl_bt_advertiser_non_connectable);
 
        app_assert_status(sc);
@@ -167,7 +193,7 @@ static void custom_adv_beaconing(void)
 
 #else
 
-//        sc = sl_bt_advertiser_set_data(custom_advertising_set_handle,
+//        sc = sl_bt_advertiser_set_data(custom_ADV,
 //                                       0,
 //                                       sizeof(sData),
 //                                       (uint8_t *)(&sData));
@@ -175,11 +201,11 @@ static void custom_adv_beaconing(void)
 
 
 //        sc = sl_bt_legacy_advertiser_start(
-//          custom_advertising_set_handle,
+//          custom_ADV,
 //          sl_bt_advertiser_non_connectable);
 
         sc = sl_bt_advertiser_start(
-          custom_advertising_set_handle,
+          custom_ADV,
           sl_bt_advertiser_user_data,
           sl_bt_advertiser_non_connectable);
 
